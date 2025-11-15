@@ -27,27 +27,24 @@ class ModelClient:
             sys.exit(1)
     
     def inference(self, prompt, max_tokens=100, temperature=0.1, stop=None):
-        return self.model.inference(prompt, max_tokens, temperature, stop)
+        print(f"DEBUG: Sending prompt (length: {len(prompt)})")
+        result = self.model.inference(prompt, max_tokens, temperature, stop)
+        print(f"DEBUG: Raw result: {repr(result)}")
+        return result
 
 # Global client instance
 client = ModelClient()
 
-# ---------- SYSTEM PROMPT ----------
-SYSTEM_MOE_PROMPT = """You are a JSON router. Reply ONLY with valid JSON.
-
-Format:
-{"tasks":{"text":"query or null","image":"prompt or null","audio":"prompt or null","web":"query or null"},"final_decision":"text"}
-
-Rules:
-- text: for knowledge questions
-- image: for image generation  
-- audio: for speech/sound
-- web: for current info only
-- Use null for unused fields"""
+# ---------- SIMPLIFIED SYSTEM PROMPT ----------
+SYSTEM_MOE_PROMPT = """Reply with JSON only:
+{"tasks":{"text":"query","image":null,"audio":null,"web":null},"final_decision":"text"}"""
 
 # ---------- JSON FIXING ----------
 def fix_json(raw_output):
     """Try to fix common JSON issues"""
+    if not raw_output:
+        return '{"tasks":{"text":"default","image":null,"audio":null,"web":null},"final_decision":"text"}'
+    
     # Add missing opening brace
     if not raw_output.strip().startswith('{'):
         raw_output = '{' + raw_output
@@ -56,39 +53,55 @@ def fix_json(raw_output):
     if not raw_output.strip().endswith('}'):
         raw_output = raw_output + '}'
     
-    # Fix null values without quotes
-    raw_output = re.sub(r':\s*null\s*([,}])', r': null\1', raw_output)
-    
     return raw_output.strip()
 
 # ---------- RUN INFERENCE ----------
 def run_moe(query: str):
-    prompt = f"""{SYSTEM_MOE_PROMPT}
+    # Much simpler prompt
+    prompt = f"""Question: {query}
+Reply with JSON:"""
 
-Query: {query}
-
-JSON:"""
-
+    print(f"DEBUG: Full prompt:\n{prompt}")
+    
     raw = client.inference(
         prompt,
-        max_tokens=80,
-        temperature=0.1,
-        stop=["\n", "Query:", "JSON:"]
+        max_tokens=150,
+        temperature=0.2,
+        stop=["\n\n", "Question:"]
     )
+
+    print(f"DEBUG: Raw response: {repr(raw)}")
 
     # Handle error responses
     if isinstance(raw, dict) and "error" in raw:
+        print(f"DEBUG: Error in response: {raw}")
         return raw
+
+    # Handle empty response
+    if not raw or raw.strip() == "":
+        print("DEBUG: Empty response detected")
+        return {
+            "tasks": {
+                "text": query,
+                "image": None,
+                "audio": None, 
+                "web": None
+            },
+            "final_decision": "text",
+            "error": "Empty response from model"
+        }
 
     # Clean and fix JSON
     raw = raw.strip()
     raw = fix_json(raw)
+    print(f"DEBUG: Fixed JSON: {raw}")
     
     # Try to validate JSON
     try:
         parsed = json.loads(raw)
         return parsed
     except json.JSONDecodeError as e:
+        print(f"DEBUG: JSON parse error: {e}")
         # Return a fallback valid JSON for text queries
         return {
             "tasks": {
@@ -104,11 +117,8 @@ JSON:"""
 
 # ---------- MAIN ENTRY POINT ----------
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        query = " ".join(sys.argv[1:])
-    else:
-        query = "What's the capital of France?"
-    
+    query = "What is the capital of France?"
     print(f"Query: {query}")
     output = run_moe(query)
+    print("Final output:")
     print(json.dumps(output, indent=2))
