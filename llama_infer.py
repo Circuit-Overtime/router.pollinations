@@ -26,99 +26,126 @@ class ModelClient:
             print("Make sure model_server.py is running!")
             sys.exit(1)
     
-    def inference(self, prompt, max_tokens=100, temperature=0.1, stop=None):
-        print(f"DEBUG: Sending prompt (length: {len(prompt)})")
-        result = self.model.inference(prompt, max_tokens, temperature, stop)
-        print(f"DEBUG: Raw result: {repr(result)}")
-        return result
+    def inference(self, prompt, max_tokens=200, temperature=0.2, stop=None):
+        return self.model.inference(prompt, max_tokens, temperature, stop)
 
 # Global client instance
 client = ModelClient()
 
-# ---------- SIMPLIFIED SYSTEM PROMPT ----------
-SYSTEM_MOE_PROMPT = """Reply with JSON only:
-{"tasks":{"text":"query","image":null,"audio":null,"web":null},"final_decision":"text"}"""
+SYSTEM_MOE_PROMPT = """
+You are a Mixture-of-Experts (MOE) decision router.
 
-# ---------- JSON FIXING ----------
+Your job is NOT to answer the user's question.
+Your ONLY job is to decide *which tools must be used* to answer it.
+
+Available tools:
+- text  → Use when the model can fully answer from internal knowledge.
+- image → Use when a visual output is required.
+- audio → Use when spoken or sound output is requested.
+- web   → Use only if the question *clearly requires* real-time, updated, unknown, or external information.
+
+You must ALWAYS output STRICT VALID JSON in the following format:
+
+{
+  "tasks": {
+    "text": "<text-generation prompt or null>",
+    "image": "<image-generation prompt or null>",
+    "audio": "<audio-generation prompt or null>",
+    "web": "<web search query or null>"
+  },
+  "final_decision": "<one of: text | image | audio | web | combination>"
+}
+
+Rules:
+- If multiple tools are needed, set final_decision to "combination".
+- Use null when a field is not required.
+- NEVER provide answers, explanations, reasoning, disclaimers, or commentary.
+- You ONLY output JSON. No extra text.
+- You must stay minimal, clean, and accurate to the user request.
+"""
+
+# ---------- JSON REPAIR ----------
 def fix_json(raw_output):
-    """Try to fix common JSON issues"""
+    """Try to fix common JSON issues while keeping structure intact."""
     if not raw_output:
-        return '{"tasks":{"text":"default","image":null,"audio":null,"web":null},"final_decision":"text"}'
-    
-    # Add missing opening brace
-    if not raw_output.strip().startswith('{'):
+        return '{"tasks":{"text":null,"image":null,"audio":null,"web":null},"final_decision":"text"}'
+
+    raw_output = raw_output.strip()
+
+    # Force starts/ends if missing
+    if not raw_output.startswith('{'):
         raw_output = '{' + raw_output
-    
-    # Add missing closing brace
-    if not raw_output.strip().endswith('}'):
+    if not raw_output.endswith('}'):
         raw_output = raw_output + '}'
-    
-    return raw_output.strip()
 
-# ---------- RUN INFERENCE ----------
+    return raw_output
+
+# ---------- MAIN MOE ROUTER ----------
 def run_moe(query: str):
-    # Much simpler prompt
-    prompt = f"""Question: {query}
-Reply with JSON:"""
-
-    print(f"DEBUG: Full prompt:\n{prompt}")
+    """
+    query   → user text
+    """
     
+    # Construct the prompt for the model
+    prompt = f"""
+### System:
+{SYSTEM_MOE_PROMPT}
+
+### User Query:
+{query}
+
+### Assistant (JSON only):
+"""
+
+    print(f"\nDEBUG: Sending prompt:\n{prompt}\n")
+
     raw = client.inference(
         prompt,
-        max_tokens=150,
+        max_tokens=200,
         temperature=0.2,
-        stop=["\n\n", "Question:"]
+        stop=["###", "\n\n"]
     )
 
     print(f"DEBUG: Raw response: {repr(raw)}")
 
-    # Handle error responses
     if isinstance(raw, dict) and "error" in raw:
-        print(f"DEBUG: Error in response: {raw}")
         return raw
 
-    # Handle empty response
+    # Empty output → fallback
     if not raw or raw.strip() == "":
-        print("DEBUG: Empty response detected")
         return {
             "tasks": {
                 "text": query,
                 "image": None,
-                "audio": None, 
+                "audio": None,
                 "web": None
             },
             "final_decision": "text",
-            "error": "Empty response from model"
+            "error": "Empty output from model"
         }
 
-    # Clean and fix JSON
-    raw = raw.strip()
-    raw = fix_json(raw)
-    print(f"DEBUG: Fixed JSON: {raw}")
-    
-    # Try to validate JSON
+    fixed = fix_json(raw)
+    print(f"DEBUG: Fixed JSON: {fixed}")
+
     try:
-        parsed = json.loads(raw)
-        return parsed
-    except json.JSONDecodeError as e:
-        print(f"DEBUG: JSON parse error: {e}")
-        # Return a fallback valid JSON for text queries
+        return json.loads(fixed)
+    except Exception as e:
         return {
             "tasks": {
                 "text": query,
                 "image": None,
-                "audio": None, 
+                "audio": None,
                 "web": None
             },
             "final_decision": "text",
             "error": f"JSON parse error: {str(e)}",
-            "raw_output": raw
+            "raw_output": fixed
         }
 
 # ---------- MAIN ENTRY POINT ----------
 if __name__ == "__main__":
     query = "What is the capital of France?"
+    
     print(f"Query: {query}")
-    output = run_moe(query)
-    print("Final output:")
-    print(json.dumps(output, indent=2))
+    out = run_moe(query)
+    print(json.dumps(out, indent=2))
