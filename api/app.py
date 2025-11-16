@@ -3,6 +3,7 @@ from multiprocessing.managers import BaseManager
 import asyncio
 import json
 import random
+import re
 
 app = Quart(__name__)
 
@@ -11,7 +12,6 @@ class ModelClient(BaseManager):
 
 ModelClient.register("get_model")
 
-# Multiple model servers
 MODEL_SERVERS = [
     {"address": ("localhost", 7002), "authkey": b"moe_model_key"},
     {"address": ("localhost", 7003), "authkey": b"moe_model_key"},
@@ -31,14 +31,26 @@ if not models:
     raise Exception("No model servers available")
 
 def get_available_model():
-    """Simple round-robin load balancing"""
     return random.choice(models)
-
 def count_words(text):
     return len(text.split())
 
+def extract_json(text):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group())
+        except json.JSONDecodeError:
+            pass
+    return {"raw_response": text}
+
 @app.route("/gen", methods=["GET", "POST"])
-async def generate():
+async def infer():
     try:
         if request.method == "GET":
             prompt = request.args.get("prompt", "").strip()
@@ -53,11 +65,10 @@ async def generate():
         if word_count > 100:
             return jsonify({"error": f"Prompt exceeds 100 words (current: {word_count})"}), 400
         
-        # Get an available model instance
         model = get_available_model()
         response = model.fast_inference(prompt)
         
-        result = json.loads(response)
+        result = extract_json(response)
         
         return jsonify({
             "prompt": prompt,
@@ -69,6 +80,13 @@ async def generate():
         return jsonify({"error": "Invalid JSON response from model"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+async def trial_run():
+    test_prompt = "Give me a picture of monalisa in the style of van gogh "
+    model = get_available_model()
+    response = model.fast_inference(test_prompt)
+    print("Trial run response:", response)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=9000, workers=10)
+    # asyncio.run(trial_run())
