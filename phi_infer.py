@@ -1,76 +1,63 @@
 from llama_cpp import Llama
-import json
-import sys
+import json, time
 
-MODEL_PATH = "models/Phi-3.5-mini-instruct-Q8_0.gguf"
+MODEL_PATH = "models/Phi-3.5-mini-instruct-Q4_K_M.gguf"
 
-# Load model with maximum GPU layers
+print("Loading model...")
+t0 = time.time()
 llm = Llama(
     model_path=MODEL_PATH,
-    n_ctx=4096,
+    n_ctx=2048,
+    n_batch=512,
     n_threads=6,
-    n_gpu_layers=-1,       # <-- use all GPU memory automatically
+    n_gpu_layers=-1,
+    flash_attn=True,
     verbose=False
 )
+print(f"[READY] load={time.time()-t0:.2f}s")
 
-SYSTEM_PROMPT = """
-You are Phi 3.5 acting as a Routing-MoE.
-Your job is to decide what tasks the assistant must perform.
 
-Rules:
-1. ALWAYS RESPOND IN VALID JSON. NO text outside JSON.
-2. JSON structure must be:
+SYSTEM = (
+    "You are a routing engine. "
+    "Return VALID JSON ONLY with:\n"
+    "{"
+    "\"tasks\": {\"text\":\"\",\"image\":\"\",\"audio\":\"\",\"web\":\"\"}, "
+    "\"reason\": \"short\""
+    "}"
+)
 
-{
-  "tasks": {
-      "text": "<text_response_or_empty>",
-      "image": "<image_generation_query_or_empty>",
-      "audio": "<audio_generation_query_or_empty>",
-      "web": "<web_search_query_or_empty>"
-  },
-  "reasoning": "<short explanation>"
-}
 
-3. Use empty string "" for any unused task.
-4. Use "web" only if:
-   - The model likely does not know the answer, OR
-   - The query requires up-to-date information.
-"""
-
-def run_inference(user_query: str):
-    prompt = f"""
-### SYSTEM:
-{SYSTEM_PROMPT}
-
-### USER:
-{user_query}
-
-### ASSISTANT (JSON ONLY):
-"""
-
-    out = llm(
-        prompt,
-        max_tokens=300,
-        temperature=0.2,
-        stop=["###"]  # stop early so JSON stays clean
+def run_inference(q):
+    prompt = (
+        "<|system|>\n" + SYSTEM + "\n"
+        "<|user|>\n" + q + "\n"
+        "<|assistant|>\n"
     )
 
-    raw = out["choices"][0]["text"].strip()
+    t1 = time.time()
+    out = llm(
+        prompt,
+        max_tokens=120,
+        temperature=0.0,
+        stop=["<|user|>", "<|system|>"]
+    )
+    latency = time.time() - t1
 
-    # attempt to fix incomplete JSON
+    txt = out["choices"][0]["text"].strip()
+
+    # Basic fixing
+    if "}" not in txt:
+        txt += "}"
+
     try:
-        parsed = json.loads(raw)
-        print(json.dumps(parsed, indent=4))
+        data = json.loads(txt)
     except:
-        # fallback: try auto-fixing by trimming till last '}'
-        try:
-            fixed = raw[:raw.rfind("}")+1]
-            parsed = json.loads(fixed)
-            print(json.dumps(parsed, indent=4))
-        except:
-            print("RAW OUTPUT:\n", raw)
+        data = {"tasks": {"text": q, "image":"", "audio":"", "web":""}, "reason": "fallback"}
+
+    data["latency"] = latency
+    print(json.dumps(data, indent=2))
+    print(f"[latency] {latency:.2f}s")
 
 
 if __name__ == "__main__":
-    query = "What is the capital of France?"
-    run_inference(query)
+    run_inference("what is the capital of france?")
