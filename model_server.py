@@ -1,75 +1,79 @@
 from multiprocessing.managers import BaseManager
 from llama_cpp import Llama
-import json
-import sys
+
+SYSTEM_MOE_PROMPT = """You are a router that decides which tools to use and provides prompts for each tool.
+- text: For answering with internal knowledge
+- image: For visual generation
+- audio: For sound generation
+- web: For real-time/external information only when needed.
+Output ONLY valid JSON:
+{
+    "tasks": {
+        "text": "<prompt or null>",
+        "image": "<prompt or null>",
+        "audio": "<prompt or null>",
+        "web": "<search query or null>"
+    }
+}
+Rules:
+- Provide PROMPTS for tools, not answers
+- Output JSON only, no extra text
+"""
 
 class ModelManager:
-    def __init__(self):
-        self.llm = None
-        self.load_model()
-    
-    def load_model(self):
-        print("Loading Phi-3.5-mini-instruct optimized for Tesla T4...")
-        self.llm = Llama(
-            model_path="models/Phi-3.5-mini-instruct-Q8_0.gguf",
-            n_ctx=2048,  # Phi-3.5 works better with larger context
-            n_threads=2,  # Minimal CPU threads - focus on GPU
-            n_gpu_layers=-1,  # ALL layers to GPU
-            n_batch=2048,  # Max batch size for T4 throughput
-            use_mmap=True,
-            use_mlock=True,
-            verbose=False,
-            # GPU optimizations for max speed
-            main_gpu=0,
-            low_vram=False,
-            # Flash attention for speed (if available)
-            flash_attn=True,
-        )
-        print("Phi-3.5-mini loaded with maximum GPU acceleration!")
-    
-    def inference(self, prompt, max_tokens=150, temperature=0.1, stop=None):
-        if self.llm is None:
-            return {"error": "Model not loaded"}
-        
-        try:
-            # Ultra-fast inference settings
-            response = self.llm(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,  # Lower temp = faster sampling
-                stop=stop or ["###", "\n\n", "<|end|>", "<|endoftext|>"],
-                echo=False,
-                # Minimal sampling for max speed
-                top_p=0.8,  # Reduced for speed
-                top_k=20,   # Reduced for speed
-                repeat_penalty=1.05,  # Minimal penalty
-                stream=False,
-                # Disable expensive features
-                seed=-1,  # Random seed (faster)
-            )
-            return response["choices"][0]["text"].strip()
-        except Exception as e:
-            return {"error": str(e)}
+        def __init__(self):
+                self.llm = None
+                self.load_model()
+                self.build_system_prefix()
 
-# Global model instance
+        def load_model(self):
+                self.llm = Llama(
+                        model_path="models/Phi-3.5-mini-instruct-Q4_K_M.gguf",
+                        n_ctx=2048,
+                        n_gpu_layers=-1,
+                        n_threads=2,
+                        n_batch=2048,
+                        use_mlock=True,
+                        use_mmap=True,
+                        flash_attn=True,
+                        verbose=False
+                )
+
+        def build_system_prefix(self):
+                self.system_prefix = (
+                        f"<|system|>\n{SYSTEM_MOE_PROMPT}\n"
+                        f"<|user|>\n"
+                )
+                self.system_tokens = self.llm.tokenize(self.system_prefix.encode("utf-8"))
+
+        def fast_inference(self, user_msg, max_tokens=60):
+                full_prompt = (
+                        self.system_prefix
+                        + user_msg
+                        + "\n<|assistant|>\n"
+                )
+
+                tokens = self.llm.tokenize((full_prompt.encode("utf-8")))
+
+                output = self.llm(
+                        prompt = tokens,
+                        max_tokens=max_tokens,
+                        temperature=0.1,
+                        top_p=0.8,
+                        top_k=40,
+                        echo=False
+                )
+
+                return output["choices"][0]["text"].strip()
+
+
 model_manager = ModelManager()
 
-# Register the manager
 class ModelServer(BaseManager):
-    pass
+        pass
 
-ModelServer.register('get_model', callable=lambda: model_manager)
+ModelServer.register("get_model", callable=lambda: model_manager)
 
 if __name__ == "__main__":
-    print("Starting Phi-3.5 Model Server on port 7002...")
-    
-    server = ModelServer(address=('localhost', 7002), authkey=b'moe_model_key')
-    server_obj = server.get_server()
-    
-    print("Model Server ready! Listening on localhost:7002")
-    print("Phi-3.5-mini with maximum Tesla T4 acceleration")
-    try:
-        server_obj.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down Model Server...")
-        server_obj.shutdown()
+        server = ModelServer(address=("localhost", 7002), authkey=b"moe_model_key")
+        server.get_server().serve_forever()
