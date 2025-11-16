@@ -9,7 +9,7 @@ echo "[INFO] Starting model servers..."
 
 for PORT in "${MODEL_PORTS[@]}"; do
     echo "[INFO] Launching model server on port $PORT..."
-    python3 $MODEL_SERVER_SCRIPT $PORT > model_$PORT.log 2>&1 &
+    python3 $MODEL_SERVER_SCRIPT $PORT > logs/model_$PORT.log 2>&1 &
     PID=$!
     PIDS+=($PID)
     echo "[INFO] Model server PID: $PID"
@@ -34,7 +34,7 @@ done
 echo "[INFO] All model servers are fully online."
 echo "[INFO] Starting app server..."
 
-python3 $APP_SCRIPT > app.log 2>&1 &
+python3 $APP_SCRIPT > logs/app.log 2>&1 &
 APP_PID=$!
 
 sleep 1
@@ -45,6 +45,16 @@ else
     echo "[ERROR] App failed to start — check app.log"
     exit 1
 fi
+
+echo "[INFO] All services running successfully!"
+
+echo "[INFO] Cleaning up log files..."
+for PORT in "${MODEL_PORTS[@]}"; do
+    rm -f logs/model_$PORT.log
+    echo "[INFO] Removed logs/model_$PORT.log"
+done
+rm -f app.log
+echo "[INFO] Removed logs/app.log"
 
 echo "[INFO] All services running. Press Ctrl+C to stop."
 
