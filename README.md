@@ -1,7 +1,7 @@
 ## Installation
 
 ```bash
-git clone https://github.com/Circuit-Overtime/moeJson.git
+git clone https://github.com/Circuit-Overtime/router.pollinations.git
 cd moeJson
 
 pip install -r requirements.txt
