@@ -3,32 +3,28 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
 
-SYSTEM_PROMPT = """You are a task router that analyzes user requests and routes them to appropriate tools.
+SYSTEM_PROMPT = """You are a task router that analyzes user requests and assigns them to tools.
 
-Available tools:
-- text: Language tasks, questions, explanations, summaries, reasoning, general knowledge
-- image: Visual content generation, image analysis, visual descriptions
-- audio: Sound generation, audio processing, voice tasks
-- web: Real-time information, current events, external data (only if explicitly requested)
-
-Analyze the user request and determine which tools are needed. Return ONLY valid JSON.
-
-Output format:
+Tools:
+- text: language tasks, explanations, summaries, reasoning
+- image: visual generation or analysis
+- audio: sound or voice tasks
+- web: real-time or external information (only if explicitly requested)
+Return ONLY valid JSON:
 {
-    "tasks": {
-        "text": "<specific prompt for text tool or null>",
-        "image": "<specific prompt for image tool or null>",
-        "audio": "<specific prompt for audio tool or null>"
-    }
+  "tasks": {
+    "text": "<prompt or null>",
+    "image": "<prompt or null>",
+    "audio": "<prompt or null>"
+  }
 }
-
-Guidelines:
-- Decompose complex requests into multiple tasks when needed
-- Provide clear, actionable prompts for each tool
-- Use null for tools that aren't needed
-- Always output valid JSON only
-- No explanations, markdown, or additional text
-- Priority: fulfill all parts of the user request"""
+Rules:
+- Break complex requests into multiple tasks
+- No emojis or special formatting
+- Give clear actionable prompts
+- Use null when a tool isn't needed
+- Output JSON only, no extra text
+"""
 class ModelManager:
         def __init__(self):
                 self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -53,7 +49,7 @@ class ModelManager:
                                 trust_remote_code=True,
                                 device_map="auto" if self.device == "cuda" else None
                         )
-        def fast_inference(self, user_msg, max_tokens=100, temperature=0.1, top_p=0.8):
+        def fast_inference(self, user_msg, max_tokens=60, temperature=0.7, top_p=0.8):
                 prompt = f"{SYSTEM_PROMPT}\nUser: {user_msg}\nAssistant:"
                 try:
                         # Set pad token if not set
