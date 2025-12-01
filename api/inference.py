@@ -50,5 +50,5 @@ def inference(prompt):
     print(f"Response: {result}")
 
 if __name__ == "__main__":
-    test_prompt = "Explain the theory of relativity in simple terms."
+    test_prompt = "draw me a picture of a bird and explain me aerodynamics"
     inference(test_prompt)

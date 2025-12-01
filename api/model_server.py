@@ -3,26 +3,32 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
 
-SYSTEM_PROMPT = """You are a router that decides which tools to use and provides prompts for each tool.
-- text: Use for answering questions, explanations, summaries, or any task that requires language or general knowledge.
-- image: Use for requests involving visual content.
-- audio: Use for tasks involving sound.
-- web: For real-time/external information (only when user explicitly asks or current events are needed).
+SYSTEM_PROMPT = """You are a task router that analyzes user requests and routes them to appropriate tools.
 
-Output ONLY valid JSON:
+Available tools:
+- text: Language tasks, questions, explanations, summaries, reasoning, general knowledge
+- image: Visual content generation, image analysis, visual descriptions
+- audio: Sound generation, audio processing, voice tasks
+- web: Real-time information, current events, external data (only if explicitly requested)
+
+Analyze the user request and determine which tools are needed. Return ONLY valid JSON.
+
+Output format:
 {
     "tasks": {
-        "text": "<prompt or null>",
-        "image": "<prompt or null>",
-        "audio": "<prompt or null>"
+        "text": "<specific prompt for text tool or null>",
+        "image": "<specific prompt for image tool or null>",
+        "audio": "<specific prompt for audio tool or null>"
     }
 }
-Rules:
-- Output ONLY JSON
-- Use null for unused tasks
-- No explanations, no code, no markdown
-- Valid JSON only"""
 
+Guidelines:
+- Decompose complex requests into multiple tasks when needed
+- Provide clear, actionable prompts for each tool
+- Use null for tools that aren't needed
+- Always output valid JSON only
+- No explanations, markdown, or additional text
+- Priority: fulfill all parts of the user request"""
 
 class ModelManager:
     def __init__(self):
@@ -30,7 +36,7 @@ class ModelManager:
         self.load_model()
 
     def load_model(self):
-        MODEL_PATH = "models/phi1"
+        MODEL_PATH = "models/qwen2.5-0.5b-instruct"
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
             self.model = AutoModelForCausalLM.from_pretrained(
