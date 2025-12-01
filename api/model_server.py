@@ -132,7 +132,7 @@ class ModelServer(BaseManager):
 ModelServer.register("get_model", callable=lambda: model_manager)
 
 if __name__ == "__main__":
-        port = int(sys.argv[1]) if len(sys.argv) > 1 else 7002
+        port = 7002
         print(f"Starting model server on port {port}")
         print(f"Using Phi-1 model from models/phi1")
         
