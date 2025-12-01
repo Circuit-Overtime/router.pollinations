@@ -69,7 +69,7 @@ async def infer():
         response = model.fast_inference(prompt)
         
         result = extract_json(response)
-        
+        print(f"Response: {result}")
         return jsonify({
             "prompt": prompt,
             "word_count": word_count,
