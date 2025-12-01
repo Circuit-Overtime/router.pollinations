@@ -17,7 +17,12 @@ Output ONLY valid JSON:
         "audio": "<prompt or null>"
     }
 }
-"""
+Rules:
+- Output ONLY JSON
+- Use null for unused tasks
+- No explanations, no code, no markdown
+- Valid JSON only"""
+
 
 class ModelManager:
     def __init__(self):
@@ -44,7 +49,7 @@ class ModelManager:
                 device_map="auto" if self.device=="cuda" else None
             )
 
-    def fast_inference(self, user_msg, max_tokens=100, temperature=0.1, top_p=0.8):
+    def fast_inference(self, user_msg, max_tokens=60, temperature=0.1, top_p=0.8):
         prompt = f"{SYSTEM_PROMPT}\nUser: {user_msg}\nAssistant:"
         try:
             # Set pad token if not set
